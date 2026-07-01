@@ -13,7 +13,17 @@ while your agents run.
      **cmd+opt+ctrl+Escape** (Escape always works; F10 is a mute key on some Macs).
   3. Auto-disarms after 5 minutes no matter what.
 
-## Build
+## Install
+
+```bash
+brew install Zappendusta/nocake/nocake
+brew services start nocake      # run in background, start at login
+```
+
+Builds from source (no notarization). Each `brew upgrade` = new binary identity,
+so macOS re-asks for both permissions after upgrading.
+
+## Build from source directly
 
 ```bash
 ./build.sh          # produces NoCake.app
@@ -53,5 +63,5 @@ Edit the message, emoji, and timeout at the top of `main.swift`, then rebuild.
 
 ## Roadmap
 
-- Notarized `.app` + DMG on GitHub Releases.
-- `brew install --cask nocake` once there's a signed release.
+- Optional: notarized `.app` + DMG on GitHub Releases for a click-to-install
+  path (the Homebrew tap already covers CLI install without signing).
