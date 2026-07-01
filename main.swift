@@ -20,10 +20,13 @@ let DEBOUNCE_SECONDS = 2.0        // min gap between popups when keys are mashed
 let TOGGLE_KEYCODE = UInt16(kVK_F10)
 // -------------------------------------------------------------------------
 
-/// Pure predicate: is this the cmd+opt+ctrl+F10 toggle? Kept pure so the
+/// Pure predicate: is this a disarm chord? cmd+opt+ctrl + (F10 OR Escape).
+/// Escape (kVK_Escape) is NEVER remapped to a media key, so it's the reliable
+/// escape when F10 is acting as mute on this keyboard. Kept pure so the
 /// lockout-critical logic is testable via `--selftest`.
 func isToggle(keycode: UInt16, flags: CGEventFlags) -> Bool {
-    guard keycode == TOGGLE_KEYCODE else { return false }
+    guard keycode == TOGGLE_KEYCODE || keycode == UInt16(kVK_Escape) else { return false }
+    // Permissive on extra modifiers (shift/fn) on purpose: easier to escape = safer.
     return flags.contains(.maskCommand)
         && flags.contains(.maskAlternate)
         && flags.contains(.maskControl)
@@ -114,9 +117,13 @@ final class Controller {
             return noErr
         }, 1, &spec, nil, nil)
         let id = EventHotKeyID(signature: OSType(0x4E434B45), id: 1)   // 'NCKE'
-        RegisterEventHotKey(UInt32(TOGGLE_KEYCODE),
+        let status = RegisterEventHotKey(UInt32(TOGGLE_KEYCODE),
                             UInt32(cmdKey | optionKey | controlKey),
                             id, GetApplicationEventTarget(), 0, &hotKeyRef)
+        if status != noErr {
+            // Arming hotkey unavailable (taken by another app / bad keycode).
+            NSLog("NoCake: RegisterEventHotKey failed (\(status)) — arming shortcut won't work")
+        }
     }
 }
 
@@ -129,7 +136,7 @@ final class PopupPanel {
         if panel == nil { build() }
         guard let panel = panel, let label = panel.contentView?.subviews.first as? NSTextField else { return }
         label.stringValue = text
-        if let screen = NSScreen.main {
+        if let screen = NSScreen.main ?? NSScreen.screens.first {
             let f = panel.frame
             panel.setFrameOrigin(NSPoint(x: screen.frame.midX - f.width / 2,
                                          y: screen.frame.midY - f.height / 2))
@@ -181,6 +188,7 @@ if CommandLine.arguments.contains("--selftest") {
     assert(!isToggle(keycode: UInt16(kVK_F10), flags: [.maskCommand, .maskControl]), "missing option must NOT match")
     assert(!isToggle(keycode: UInt16(kVK_ANSI_A), flags: all), "wrong key must NOT match")
     assert(!isToggle(keycode: UInt16(kVK_F10), flags: []), "no modifiers must NOT match")
+    assert(isToggle(keycode: UInt16(kVK_Escape), flags: all), "Escape combo must also disarm")
     print("selftest OK")
     exit(0)
 }

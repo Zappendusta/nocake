@@ -7,9 +7,11 @@ while your agents run.
 - **Armed:** every keystroke is swallowed and a popup shows your message. Toggle
   with **cmd+opt+ctrl+F10**.
 - **Disarmed:** invisible. No Dock icon, no menu-bar icon, ~0 CPU.
-- **You can't lock yourself out:** the mouse is never blocked (always click to
-  Force Quit), the toggle is detected inside the key tap, and it auto-disarms
-  after 5 minutes.
+- **You can't lock yourself out**, three ways:
+  1. The mouse is never blocked — always click Force Quit / Activity Monitor.
+  2. Disarm chord is detected inside the tap: **cmd+opt+ctrl+F10** OR
+     **cmd+opt+ctrl+Escape** (Escape always works; F10 is a mute key on some Macs).
+  3. Auto-disarms after 5 minutes no matter what.
 
 ## Build
 
@@ -33,7 +35,11 @@ binary). Re-check both toggles if arming stops working.
 
 1. `open NoCake.app` — it runs invisibly.
 2. Step away with agents running → press **cmd+opt+ctrl+F10** to arm.
-3. Keyboard is dead; typing shows your popup. Press the combo again to disarm.
+3. Keyboard is dead; typing shows your popup. Press the combo again to disarm —
+   or **cmd+opt+ctrl+Escape** if F10 is a media key on your keyboard.
+
+If F10 does nothing: your F-row is in media mode. Either use the Escape chord, or
+enable System Settings → Keyboard → "Use F1, F2, etc. as standard function keys."
 
 Edit the message, emoji, and timeout at the top of `main.swift`, then rebuild.
 
@@ -41,7 +47,8 @@ Edit the message, emoji, and timeout at the top of `main.swift`, then rebuild.
 
 - **Password fields stay typeable while armed.** macOS Secure Input routes those
   keys past the tap. This is intentional (and a safety feature) — not blockable
-  from an external app.
+  from an external app. If Secure Input gets stuck on, the tap goes deaf: use the
+  mouse to Force Quit, or wait out the 5-minute dead-man.
 - Locking the screen or force-quitting always releases the keyboard.
 
 ## Roadmap
