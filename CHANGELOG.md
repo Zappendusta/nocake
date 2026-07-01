@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.0.1 — 2026-07-01
+
+- MIT license.
+- Install via Homebrew: `brew install Zappendusta/nocake/nocake` (build-from-source
+  tap at [homebrew-nocake](https://github.com/Zappendusta/homebrew-nocake), no
+  notarization). `brew services start nocake` for background/launch-at-login.
+
 ## v1.0.0 — 2026-07-01
 
 First release. Invisible macOS keyboard-lock deterrent.
