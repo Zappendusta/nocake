@@ -27,6 +27,10 @@ let MESSAGE_MAX = 200
 // NOT a reliable sole exit.
 let FKEY_CODES: Set<UInt16> = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111]
 
+// Modifier virtual keycodes: these arrive as flagsChanged, never keyDown, so a
+// combo keyed on one could never fire the disarm — reject it as a toggle key.
+let MODIFIER_CODES: Set<UInt16> = [54, 55, 56, 57, 58, 59, 60, 61, 62, 63]
+
 // ---- modifier mapping ---------------------------------------------------
 /// Parse config modifier tokens. Case-insensitive, aliases, deduped.
 /// Returns (set, valid); valid=false if any token is unknown.
@@ -115,14 +119,14 @@ func configPath() -> String {
 /// F-keys may act as media keys unless Fn is held — worth a heads-up, not a block.
 func isFKey(_ keyCode: UInt16) -> Bool { FKEY_CODES.contains(keyCode) }
 
-/// Load config with per-field validation (each bad field defaults independently).
-/// The primary combo is always a valid keyboard exit; the mouse is never blocked
-/// (keyboard-only tap), so Force-Quit is always available. Never throws.
+/// Load config: each present field is validated by value and defaults on its own
+/// if invalid. A whole-file decode/type error falls back to all defaults. The
+/// mouse is never blocked (keyboard-only tap), so Force-Quit is always available.
 func loadConfig() -> Config {
     var c = Config.defaults
     guard let data = FileManager.default.contents(atPath: configPath()) else { return c }
     guard let raw = try? JSONDecoder().decode(RawConfig.self, from: data) else {
-        NSLog("NoCake: config.json unparseable — using defaults")
+        NSLog("NoCake: config.json unparseable (or a field has the wrong type) — using defaults")
         return c
     }
     if let m = raw.message {
@@ -137,8 +141,8 @@ func loadConfig() -> Config {
         }
     }
     if let k = raw.toggleKeyCode {
-        if k >= 0 && k <= 127 { c.keyCode = UInt16(k) }
-        else { NSLog("NoCake: invalid toggleKeyCode \(k) — using default \(DEFAULT_KEYCODE)") }
+        if k >= 0 && k <= 127 && !MODIFIER_CODES.contains(UInt16(k)) { c.keyCode = UInt16(k) }
+        else { NSLog("NoCake: invalid/modifier-only toggleKeyCode \(k) — using default \(DEFAULT_KEYCODE)") }
     }
     if let rawMods = raw.toggleModifiers {
         let (set, ok) = parseModifiers(rawMods)
@@ -427,8 +431,12 @@ func restartApp() {
     let bundle = exe.range(of: ".app").map { String(exe[..<$0.upperBound]) } ?? exe
     let open = Process(); open.launchPath = "/usr/bin/open"; open.arguments = [bundle]
     open.standardOutput = FileHandle.nullDevice; open.standardError = FileHandle.nullDevice
-    try? open.run()   // non-blocking; open returns immediately
-    print(pids.isEmpty ? "  Started NoCake." : "  Restarted NoCake.")
+    try? open.run(); open.waitUntilExit()   // `open` returns fast once the launch is handed off
+    if open.terminationStatus == 0 {
+        print(pids.isEmpty ? "  Started NoCake." : "  Restarted NoCake.")
+    } else {
+        print("  ⚠ Could not relaunch \(bundle). Start it manually: open \(bundle)")
+    }
 }
 
 func runConfigure() {
@@ -526,8 +534,12 @@ func runSelftest() {
 setvbuf(stdout, nil, _IONBF, 0)   // unbuffered — output appears immediately
 let args = CommandLine.arguments
 if args.contains("--selftest") { runSelftest() }
-if args.count > 1 && args[1] == "configure" { runConfigure(); exit(0) }
-
+if args.count > 1 {
+    if args[1] == "configure" { runConfigure(); exit(0) }
+    FileHandle.standardError.write("NoCake: unknown argument '\(args[1])'. Usage: nocake [configure|--selftest]\n".data(using: .utf8)!)
+    exit(2)
+}
+// No args → run the background agent.
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 requestPermissions()   // prompt on first launch so arming can't fail silently
