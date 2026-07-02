@@ -20,8 +20,9 @@ brew install Zappendusta/nocake/nocake
 brew services start nocake      # run in background, start at login
 ```
 
-Builds from source (no notarization). Each `brew upgrade` = new binary identity,
-so macOS re-asks for both permissions after upgrading.
+Builds from source (no notarization). Needs **Xcode Command Line Tools**
+(`xcode-select --install`) — not full Xcode. Each `brew upgrade` = new binary
+identity, so macOS re-asks for both permissions after upgrading.
 
 ## Build from source directly
 
