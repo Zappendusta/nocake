@@ -70,6 +70,10 @@ func modsFromFlags(_ f: CGEventFlags) -> Set<String> {
     return s
 }
 
+let MOD_ORDER = ["cmd", "opt", "ctrl", "shift"]
+/// Canonical modifier order for display and storage (not alphabetical).
+func orderedMods(_ mods: Set<String>) -> [String] { MOD_ORDER.filter { mods.contains($0) } }
+
 // ---- config -------------------------------------------------------------
 struct Config {
     var message: String
@@ -259,6 +263,17 @@ final class PopupPanel {
         if panel == nil { build() }
         guard let panel = panel, let label = panel.contentView?.subviews.first as? NSTextField else { return }
         label.stringValue = text
+        // Size the panel to the (possibly multi-line) text.
+        let width: CGFloat = 520, inset: CGFloat = 28
+        let textW = width - inset * 2
+        let bounds = (text as NSString).boundingRect(
+            with: NSSize(width: textW, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: label.font as Any])
+        let textH = ceil(bounds.height)
+        let height = max(120, textH + inset * 2)
+        panel.setContentSize(NSSize(width: width, height: height))
+        label.frame = NSRect(x: inset, y: inset, width: textW, height: textH)
         if let screen = NSScreen.main ?? NSScreen.screens.first {
             let f = panel.frame
             panel.setFrameOrigin(NSPoint(x: screen.frame.midX - f.width / 2,
@@ -277,7 +292,7 @@ final class PopupPanel {
     }
 
     private func build() {
-        let rect = NSRect(x: 0, y: 0, width: 460, height: 140)
+        let rect = NSRect(x: 0, y: 0, width: 520, height: 140)
         let p = NSPanel(contentRect: rect, styleMask: [.borderless, .nonactivatingPanel],
                         backing: .buffered, defer: false)
         p.level = .screenSaver
@@ -291,11 +306,10 @@ final class PopupPanel {
         content.layer?.cornerRadius = 18
         content.layer?.masksToBounds = true
         let label = NSTextField(labelWithString: "")
-        label.frame = rect.insetBy(dx: 24, dy: 24)
         label.alignment = .center
         label.font = .systemFont(ofSize: 22, weight: .semibold)
         label.textColor = .white
-        label.maximumNumberOfLines = 3
+        label.maximumNumberOfLines = 0        // unlimited — full multi-line message
         label.lineBreakMode = .byWordWrapping
         content.addSubview(label)
         p.contentView = content
@@ -338,6 +352,26 @@ func prompt(_ q: String, default def: String) -> String {
     return line
 }
 
+/// Read a multi-line message. Blank first line keeps `current`. Otherwise collect
+/// lines (blank lines allowed within) until a line that is just "." or EOF.
+func readMessageMultiline(current: String) -> String {
+    print("  Type your message. Blank lines are allowed. Finish with a single '.' on its own line.")
+    print("  (Press Enter right away to keep the current message.)")
+    guard let first = readLine() else { return current }
+    if first.trimmingCharacters(in: .whitespaces).isEmpty { return current }
+    if first == "." { return current }
+    var lines = [first]
+    while let l = readLine() {
+        if l == "." { break }
+        lines.append(l)
+    }
+    var joined = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    if joined.count > MESSAGE_MAX { joined = String(joined.prefix(MESSAGE_MAX)) }
+    return joined.isEmpty ? current : joined
+}
+
+func rule() { print(String(repeating: "─", count: 52)) }
+
 func writeConfig(_ c: Config) -> Bool {
     let dir = (configPath() as NSString).deletingLastPathComponent
     do {
@@ -350,7 +384,7 @@ func writeConfig(_ c: Config) -> Bool {
     let dict: [String: Any] = [
         "message": c.message,
         "toggleKeyCode": Int(c.keyCode),
-        "toggleModifiers": Array(c.mods).sorted(),
+        "toggleModifiers": orderedMods(c.mods),
         "escapeFailsafe": c.escapeFailsafe,
         "deadManMinutes": c.deadManMinutes,
     ]
@@ -395,38 +429,56 @@ func restartApp() {
 
 func runConfigure() {
     let cur = loadConfig()
-    print("Current NoCake config (\(FileManager.default.fileExists(atPath: configPath()) ? "from config" : "defaults")):")
-    print("  message:        \(cur.message)")
-    print("  combo:          keyCode \(cur.keyCode) + \(Array(cur.mods).sorted().joined(separator: "+"))")
-    print("  escapeFailsafe: \(cur.escapeFailsafe)")
-    print("  deadManMinutes: \(cur.deadManMinutes)")
+    let src = FileManager.default.fileExists(atPath: configPath()) ? "from config" : "defaults"
+    print("")
+    rule()
+    print("  NoCake — configure")
+    rule()
+    print("  Current settings (\(src)):")
+    print("    message:  \(cur.message.replacingOccurrences(of: "\n", with: "\n              "))")
+    print("    combo:    keyCode \(cur.keyCode) + \(orderedMods(cur.mods).joined(separator: "+"))")
+    print("    escape:   \(cur.escapeFailsafe ? "on" : "off")")
+    print("    dead-man: \(cur.deadManMinutes == 0 ? "off" : "\(cur.deadManMinutes) min")")
     print("")
 
     var new = cur
-    new.message = prompt("Message (with emoji)", default: cur.message)
-    if new.message.count > MESSAGE_MAX { new.message = String(new.message.prefix(MESSAGE_MAX)) }
 
-    // Combo: live capture, with keep-current fallback if no permission.
-    print("Press your desired arm/disarm combo now (30s, Enter to keep current)...")
-    // Drain the pending Enter is not needed; capture reads the next global keyDown.
-    if let (kc, mods) = captureCombo(timeout: 30), !mods.isEmpty {
-        new.keyCode = kc; new.mods = mods
-        print("Captured: keyCode \(kc) + \(Array(mods).sorted().joined(separator: "+"))")
-        if !comboIsReliable(kc) { print("  ⚠ that's an F-key — may need Fn on some keyboards.") }
+    rule()
+    print("  1. Message")
+    new.message = readMessageMultiline(current: cur.message)
+    print("")
+
+    rule()
+    print("  2. Arm/disarm combo")
+    print("  Press your combo now (30s). Press Enter alone to keep the current one.")
+    if let (kc, mods) = captureCombo(timeout: 30) {
+        let isBareReturn = (kc == UInt16(kVK_Return) || kc == UInt16(kVK_ANSI_KeypadEnter)) && mods.isEmpty
+        if isBareReturn {
+            print("  Kept current combo.")
+        } else {
+            new.keyCode = kc; new.mods = mods
+            print("  Captured: keyCode \(kc) + \(orderedMods(mods).joined(separator: "+"))")
+            if !comboIsReliable(kc) { print("  ⚠ that's an F-key — may need Fn on some keyboards.") }
+        }
     } else {
-        print("No combo captured (timeout or missing Accessibility/Input Monitoring permission). Keeping current.")
+        print("  No combo captured (timeout, or terminal lacks Accessibility/Input Monitoring). Kept current.")
     }
+    print("")
 
-    let esc = prompt("Escape failsafe on? (y/n)", default: cur.escapeFailsafe ? "y" : "n")
-    new.escapeFailsafe = esc.lowercased().hasPrefix("y")
-    let dm = prompt("Dead-man minutes (0 = off)", default: String(cur.deadManMinutes))
+    rule()
+    print("  3. Failsafes")
+    new.escapeFailsafe = prompt("  Escape failsafe on? (y/n)", default: cur.escapeFailsafe ? "y" : "n")
+        .lowercased().hasPrefix("y")
+    let dm = prompt("  Dead-man minutes (0 = off)", default: String(cur.deadManMinutes))
     new.deadManMinutes = max(0, Int(dm) ?? cur.deadManMinutes)
+    print("")
 
-    // Enforce the exit invariant at write time — block, don't silently heal.
+    // Exit invariant — block, don't silently heal.
     if !comboIsReliable(new.keyCode) && !new.escapeFailsafe && new.deadManMinutes == 0 {
-        print("")
-        print("REFUSED: that leaves zero reliable exits (F-key combo + escape off + dead-man 0).")
-        print("Enable the Escape failsafe, set a dead-man timeout, or pick a non-F-key combo, then re-run `nocake configure`.")
+        rule()
+        print("  REFUSED: zero reliable exits (F-key combo + escape off + dead-man 0).")
+        print("  Enable Escape, set a dead-man timeout, or pick a non-F-key combo. Re-run to try again.")
+        rule()
         exit(1)
     }
 
@@ -434,8 +486,16 @@ func runConfigure() {
         FileHandle.standardError.write("NoCake: failed to write config.\n".data(using: .utf8)!)
         exit(1)
     }
-    print("Wrote \(configPath())")
-    restartApp()
+    rule()
+    print("  Saved \(configPath())")
+    let doRestart = prompt("  Restart NoCake now to apply? (y/n)", default: "y")
+    if doRestart.lowercased().hasPrefix("y") {
+        restartApp()
+    } else {
+        print("  Not restarted. Apply later: `brew services restart nocake` or relaunch NoCake.app.")
+    }
+    rule()
+    print("")
 }
 
 // ---- selftest -----------------------------------------------------------
