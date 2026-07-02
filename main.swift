@@ -311,26 +311,35 @@ var captureMods: Set<String> = []
 var captureGot = false
 
 func captureCombo(timeout: TimeInterval) -> (UInt16, Set<String>)? {
+    // No Accessibility permission → tapping is pointless; skip fast (no hang).
+    guard AXIsProcessTrusted() else { return nil }
     captureGot = false
-    let mask = (1 << CGEventType.keyDown.rawValue)
-    guard let tap = CGEvent.tapCreate(
-        tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly,
-        eventsOfInterest: CGEventMask(mask),
-        callback: { _, _, event, _ in
-            captureKeyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
-            captureMods = modsFromFlags(event.flags)
-            captureGot = true
-            CFRunLoopStop(CFRunLoopGetCurrent())
-            return Unmanaged.passUnretained(event)
-        }, userInfo: nil
-    ) else { return nil }   // no permission
-    let src = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-    CFRunLoopAddSource(CFRunLoopGetCurrent(), src, .commonModes)
-    CGEvent.tapEnable(tap: tap, enable: true)
-    CFRunLoopRunInMode(.defaultMode, timeout, false)
-    CGEvent.tapEnable(tap: tap, enable: false)
-    CFRunLoopRemoveSource(CFRunLoopGetCurrent(), src, .commonModes)
-    return captureGot ? (captureKeyCode, captureMods) : nil
+    let sem = DispatchSemaphore(value: 0)
+    // Run the tap + its runloop on a background thread. The MAIN thread waits on
+    // the semaphore with a hard timeout, so it can never block past `timeout`
+    // regardless of what the tap/runloop does.
+    DispatchQueue.global().async {
+        let mask = (1 << CGEventType.keyDown.rawValue)
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly,
+            eventsOfInterest: CGEventMask(mask),
+            callback: { _, _, event, _ in
+                captureKeyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+                captureMods = modsFromFlags(event.flags)
+                captureGot = true
+                CFRunLoopStop(CFRunLoopGetCurrent())
+                return Unmanaged.passUnretained(event)
+            }, userInfo: nil
+        ) else { sem.signal(); return }
+        let src = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        CFRunLoopAddSource(CFRunLoopGetCurrent(), src, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+        CFRunLoopRun()   // stopped by the callback on a keypress
+        sem.signal()
+    }
+    let outcome = sem.wait(timeout: .now() + timeout)
+    // Only trust the result on a clean signal (no read/write race with timeout).
+    return (outcome == .success && captureGot) ? (captureKeyCode, captureMods) : nil
 }
 
 func prompt(_ q: String, default def: String) -> String {
@@ -384,34 +393,27 @@ func writeConfig(_ c: Config) -> Bool {
 }
 
 func restartApp() {
-    let label = "gui/\(getuid())/homebrew.mxcl.nocake"
-    func run(_ cmd: String, _ args: [String]) -> Int32 {
-        let p = Process(); p.launchPath = cmd; p.arguments = args
-        p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
-        try? p.run(); p.waitUntilExit(); return p.terminationStatus
-    }
-    if run("/bin/launchctl", ["print", label]) == 0 {
-        _ = run("/bin/launchctl", ["kickstart", "-k", label])
-        print("Restarted via launchd.")
-        return
-    }
-    // Manual launch: find + kill + relaunch.
+    // Deliberately avoids `launchctl kickstart`: it HANGS on a stale/broken
+    // service registration. SIGTERM the running agent (excluding this configure
+    // process) and relaunch via `open` — non-blocking, works for manual launches
+    // and for launchd (KeepAlive revives it; a single-instance `open` is harmless).
+    let me = getpid()
     let pgrep = Process(); pgrep.launchPath = "/usr/bin/pgrep"
     pgrep.arguments = ["-f", "NoCake.app/Contents/MacOS/nocake"]
-    let pipe = Pipe(); pgrep.standardOutput = pipe
-    try? pgrep.run(); pgrep.waitUntilExit()
-    let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-    let pids = out.split(whereSeparator: \.isNewline).compactMap { Int32($0) }
-    if pids.isEmpty {
-        print("NoCake not running. Start with `brew services start nocake` or `open NoCake.app`.")
-        return
-    }
+    let pipe = Pipe(); pgrep.standardOutput = pipe; pgrep.standardError = FileHandle.nullDevice
+    try? pgrep.run()
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    pgrep.waitUntilExit()
+    let out = String(data: data, encoding: .utf8) ?? ""
+    let pids = out.split(whereSeparator: \.isNewline).compactMap { Int32($0) }.filter { $0 != me }
     for pid in pids { kill(pid, SIGTERM) }
-    // Best-effort relaunch via the Homebrew bundle if present.
-    let brew = Process(); brew.launchPath = "/bin/sh"
-    brew.arguments = ["-c", "open \"$(brew --prefix nocake 2>/dev/null)/NoCake.app\" 2>/dev/null || true"]
-    try? brew.run(); brew.waitUntilExit()
-    print("Restarted.")
+
+    let exe = Bundle.main.executablePath ?? CommandLine.arguments[0]
+    let bundle = exe.range(of: ".app").map { String(exe[..<$0.upperBound]) } ?? exe
+    let open = Process(); open.launchPath = "/usr/bin/open"; open.arguments = [bundle]
+    open.standardOutput = FileHandle.nullDevice; open.standardError = FileHandle.nullDevice
+    try? open.run()   // non-blocking; open returns immediately
+    print(pids.isEmpty ? "  Started NoCake." : "  Restarted NoCake.")
 }
 
 func runConfigure() {
@@ -506,6 +508,7 @@ func runSelftest() {
 }
 
 // ---- entry --------------------------------------------------------------
+setvbuf(stdout, nil, _IONBF, 0)   // unbuffered — output appears immediately
 let args = CommandLine.arguments
 if args.contains("--selftest") { runSelftest() }
 if args.count > 1 && args[1] == "configure" { runConfigure(); exit(0) }
