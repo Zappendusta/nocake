@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.1.0 — 2026-07-02
+
+- Configurable message, arm/disarm combo, Escape failsafe, and dead-man timeout
+  via `~/.config/nocake/config.json` — no rebuild needed.
+- New `nocake configure` wizard: prompts, live-captures your combo, writes the
+  config, and restarts the running app (brew services or manual launch).
+- Exit invariant: at least one of {combo, +Escape, dead-man} is always active;
+  a zero-exit config auto-heals to `escapeFailsafe: true`. Closes #1.
+
 ## v1.0.1 — 2026-07-01
 
 - MIT license.

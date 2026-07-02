@@ -51,6 +51,31 @@ binary). Re-check both toggles if arming stops working.
 If F10 does nothing: your F-row is in media mode. Either use the Escape chord, or
 enable System Settings → Keyboard → "Use F1, F2, etc. as standard function keys."
 
+## Configure
+
+Message, combo, Escape failsafe, and dead-man timeout are configurable — no rebuild.
+
+```bash
+nocake configure     # guided wizard: prompts, live-captures your combo, restarts
+```
+
+Or hand-edit `~/.config/nocake/config.json`:
+
+```json
+{
+  "message": "Not today. Agents running. Bring your own cake 🤖🍰",
+  "toggleKeyCode": 109,
+  "toggleModifiers": ["cmd", "opt", "ctrl"],
+  "escapeFailsafe": true,
+  "deadManMinutes": 5
+}
+```
+
+Bad or missing values fall back to defaults (logged). **You can never lock yourself
+out:** at least one of {your combo, the +Escape failsafe, the dead-man timer} is
+always active — a config that would leave zero is auto-healed to `escapeFailsafe: true`.
+And the mouse is never blocked regardless, so Force Quit always works.
+
 Edit the message, emoji, and timeout at the top of `main.swift`, then rebuild.
 
 ## Known gaps
