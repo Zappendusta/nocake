@@ -6,8 +6,10 @@
   via `~/.config/nocake/config.json` — no rebuild needed.
 - New `nocake configure` wizard: prompts, live-captures your combo, writes the
   config, and restarts the running app (brew services or manual launch).
-- Exit invariant: at least one of {combo, +Escape, dead-man} is always active;
-  a zero-exit config auto-heals to `escapeFailsafe: true`. Closes #1.
+- Your arm/disarm combo is always a keyboard exit (F-keys allowed — hold Fn if
+  your F-row is in media mode). Escape failsafe and dead-man are optional extras.
+  The mouse is never blocked, so Force-Quit always works no matter the config.
+  Closes #1.
 
 ## v1.0.1 — 2026-07-01
 

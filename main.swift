@@ -100,25 +100,12 @@ func configPath() -> String {
     return "\(home)/.config/nocake/config.json"
 }
 
-/// A key is a reliable sole exit if it is NOT an F-key (media-key risk).
-func comboIsReliable(_ keyCode: UInt16) -> Bool { !FKEY_CODES.contains(keyCode) }
+/// F-keys may act as media keys unless Fn is held — worth a heads-up, not a block.
+func isFKey(_ keyCode: UInt16) -> Bool { FKEY_CODES.contains(keyCode) }
 
-/// Exit invariant: at least one of {reliable combo, escape, dead-man} must be
-/// active. If none are, force escapeFailsafe on. Pure — tested in --selftest.
-func healInvariant(_ c: Config) -> Config {
-    let reliableCombo = comboIsReliable(c.keyCode)
-    let hasDeadman = c.deadManMinutes > 0
-    if !reliableCombo && !c.escapeFailsafe && !hasDeadman {
-        var healed = c
-        healed.escapeFailsafe = true
-        NSLog("NoCake: zero reliable exits (F-key combo + escape off + dead-man 0) — forcing escapeFailsafe on")
-        return healed
-    }
-    return c
-}
-
-/// Load config with per-field validation (each bad field defaults independently),
-/// then heal the exit invariant. Never throws; never returns an unsafe config.
+/// Load config with per-field validation (each bad field defaults independently).
+/// The primary combo is always a valid keyboard exit; the mouse is never blocked
+/// (keyboard-only tap), so Force-Quit is always available. Never throws.
 func loadConfig() -> Config {
     var c = Config.defaults
     guard let data = FileManager.default.contents(atPath: configPath()) else { return c }
@@ -151,7 +138,7 @@ func loadConfig() -> Config {
         if d >= 0 { c.deadManMinutes = d }
         else { NSLog("NoCake: negative deadManMinutes \(d) — using default \(DEFAULT_DEADMAN)") }
     }
-    return healInvariant(c)
+    return c
 }
 
 /// Disarm predicate. Primary combo (permissive: contains all configured mods) OR
@@ -458,7 +445,7 @@ func runConfigure() {
         } else {
             new.keyCode = kc; new.mods = mods
             print("  Captured: keyCode \(kc) + \(orderedMods(mods).joined(separator: "+"))")
-            if !comboIsReliable(kc) { print("  ⚠ that's an F-key — may need Fn on some keyboards.") }
+            if isFKey(kc) { print("  ⚠ F-key — hold Fn if your F-row is in media mode.") }
         }
     } else {
         print("  No combo captured (timeout, or terminal lacks Accessibility/Input Monitoring). Kept current.")
@@ -473,13 +460,12 @@ func runConfigure() {
     new.deadManMinutes = max(0, Int(dm) ?? cur.deadManMinutes)
     print("")
 
-    // Exit invariant — block, don't silently heal.
-    if !comboIsReliable(new.keyCode) && !new.escapeFailsafe && new.deadManMinutes == 0 {
-        rule()
-        print("  REFUSED: zero reliable exits (F-key combo + escape off + dead-man 0).")
-        print("  Enable Escape, set a dead-man timeout, or pick a non-F-key combo. Re-run to try again.")
-        rule()
-        exit(1)
+    // Heads-up (not a block): F-key combo as the only keyboard exit needs Fn.
+    // The mouse is never blocked, so Force-Quit always works regardless.
+    if isFKey(new.keyCode) && !new.escapeFailsafe && new.deadManMinutes == 0 {
+        print("  Note: your F-key combo is the only keyboard exit — hold Fn to disarm.")
+        print("  (The mouse is never blocked, so Force-Quit always works.)")
+        print("")
     }
 
     guard writeConfig(new) else {
@@ -512,16 +498,9 @@ func runSelftest() {
     assert(parseModifiers(["Cmd", "ALT", "control"]).set == ["cmd", "opt", "ctrl"], "modifier aliases normalize")
     assert(parseModifiers(["cmd", "bogus"]).valid == false, "unknown modifier flagged invalid")
     assert(parseModifiers(["cmd", "command"]).set == ["cmd"], "duplicate modifiers dedup")
-    // reliable key
-    assert(!comboIsReliable(UInt16(kVK_F10)), "F10 is not a reliable sole exit")
-    assert(comboIsReliable(UInt16(kVK_ANSI_A)), "letter A is a reliable exit")
-    // exit-invariant heal: F-key + escape off + dead-man 0 -> escape forced on
-    var risky = Config(message: "x", keyCode: UInt16(kVK_F10), mods: DEFAULT_MODS,
-                       escapeFailsafe: false, deadManMinutes: 0)
-    assert(healInvariant(risky).escapeFailsafe == true, "zero-exit config heals to escapeFailsafe on")
-    // reliable combo with everything else off is allowed (no heal)
-    risky.keyCode = UInt16(kVK_ANSI_A)
-    assert(healInvariant(risky).escapeFailsafe == false, "reliable combo needs no heal")
+    // F-key detection (drives the Fn heads-up, not a block)
+    assert(isFKey(UInt16(kVK_F10)), "F10 detected as F-key")
+    assert(!isFKey(UInt16(kVK_ANSI_A)), "letter A is not an F-key")
     print("selftest OK")
     exit(0)
 }

@@ -71,10 +71,11 @@ Or hand-edit `~/.config/nocake/config.json`:
 }
 ```
 
-Bad or missing values fall back to defaults (logged). **You can never lock yourself
-out:** at least one of {your combo, the +Escape failsafe, the dead-man timer} is
-always active — a config that would leave zero is auto-healed to `escapeFailsafe: true`.
-And the mouse is never blocked regardless, so Force Quit always works.
+Bad or missing values fall back to defaults (logged). Your arm/disarm combo is
+always a keyboard exit (F-keys allowed — hold Fn if your F-row is in media mode);
+the Escape failsafe and dead-man timer are optional extras. **You can never lock
+yourself out:** the mouse is never blocked, so a Force-Quit click always works no
+matter what you configure.
 
 Edit the message, emoji, and timeout at the top of `main.swift`, then rebuild.
 
