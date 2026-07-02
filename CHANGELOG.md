@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.1.0 — 2026-07-02
+
+- Configurable message, arm/disarm combo, Escape failsafe, and dead-man timeout
+  via `~/.config/nocake/config.json` — no rebuild needed.
+- New `nocake configure` wizard: prompts, live-captures your combo, writes the
+  config, and restarts the running app (brew services or manual launch).
+- Your arm/disarm combo is always a keyboard exit (F-keys allowed — hold Fn if
+  your F-row is in media mode). Escape failsafe and dead-man are optional extras.
+  The mouse is never blocked, so Force-Quit always works no matter the config.
+  Closes #1.
+
 ## v1.0.1 — 2026-07-01
 
 - MIT license.
