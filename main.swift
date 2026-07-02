@@ -10,6 +10,8 @@
 import AppKit
 import Carbon.HIToolbox
 import Darwin
+import ApplicationServices
+import IOKit.hid
 
 // ---- defaults -----------------------------------------------------------
 let DEFAULT_MESSAGE = "Not today. Agents running. Bring your own cake 🤖🍰"
@@ -59,6 +61,16 @@ func carbonMods(_ mods: Set<String>) -> UInt32 {
     if mods.contains("ctrl")  { m |= UInt32(controlKey) }
     if mods.contains("shift") { m |= UInt32(shiftKey) }
     return m
+}
+
+/// Trigger the macOS permission dialogs for Accessibility + Input Monitoring.
+/// A key-swallowing CGEventTap needs BOTH; without them arming silently no-ops.
+func requestPermissions() {
+    if !AXIsProcessTrusted() {
+        let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        _ = AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
+    }
+    _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
 }
 
 func modsFromFlags(_ f: CGEventFlags) -> Set<String> {
@@ -175,7 +187,10 @@ final class Controller {
             callback: { _, type, event, _ in Controller.shared.handle(type: type, event: event) },
             userInfo: nil
         ) else {
-            NSLog("NoCake: could not create event tap (grant Accessibility + Input Monitoring)")
+            NSLog("NoCake: could not create event tap — needs Accessibility + Input Monitoring")
+            // Make the silent failure visible + reopen the permission dialogs.
+            panel.show(text: "NoCake needs permission ⚙️\nSystem Settings → Privacy & Security →\nAccessibility + Input Monitoring", seconds: 5)
+            requestPermissions()
             return
         }
         self.tap = tap
@@ -515,6 +530,7 @@ if args.count > 1 && args[1] == "configure" { runConfigure(); exit(0) }
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
+requestPermissions()   // prompt on first launch so arming can't fail silently
 Controller.shared.installArmingHotKey()
 NSLog("NoCake: running (disarmed). Press the arm combo to arm.")
 app.run()
