@@ -5,13 +5,13 @@ coworker can't sit at your unlocked Mac and volunteer you for cake duty in Teams
 while your agents run.
 
 - **Armed:** every keystroke is swallowed and a popup shows your message. Toggle
-  with **cmd+opt+ctrl+F10**.
+  with **cmd+opt+ctrl+F10** by default (configurable — see [Configure](#configure)).
 - **Disarmed:** invisible. No Dock icon, no menu-bar icon, ~0 CPU.
-- **You can't lock yourself out**, three ways:
-  1. The mouse is never blocked — always click Force Quit / Activity Monitor.
-  2. Disarm chord is detected inside the tap: **cmd+opt+ctrl+F10** OR
-     **cmd+opt+ctrl+Escape** (Escape always works; F10 is a mute key on some Macs).
-  3. Auto-disarms after 5 minutes no matter what.
+- **You can't lock yourself out:** the mouse is never blocked (keyboard-only tap),
+  so a Force-Quit click always works no matter how you configure the rest. By
+  default the disarm chord is **cmd+opt+ctrl+F10** (or **cmd+opt+ctrl+Escape**) and
+  it auto-disarms after 5 minutes; the combo, Escape failsafe, and timeout are all
+  configurable.
 
 ## Install
 
